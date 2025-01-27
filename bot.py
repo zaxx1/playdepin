@@ -237,10 +237,9 @@ class DePINed:
                 if attempt < retries - 1:
                     await asyncio.sleep(5)
                     continue
-
-                self.print_message(email, proxy, Fore.RED, f"PING Failed: {Fore.YELLOW+Style.BRIGHT}{str(e)}")
+                
                 proxy = self.rotate_proxy_for_account(email) if use_proxy else None
-                return None
+                return self.print_message(email, proxy, Fore.RED, f"PING Failed: {Fore.YELLOW+Style.BRIGHT}{str(e)}")
             
     async def process_user_earning(self, email: str, password: str, token: str, use_proxy: bool):
         while True:
@@ -270,7 +269,7 @@ class DePINed:
             )
 
             ping = await self.user_send_ping(email, password, token, use_proxy, proxy)
-            if "message" in ping and ping['message'] == "Widget connection status updated":
+            if ping and ping['message'] == "Widget connection status updated":
                 self.print_message(email, proxy, Fore.GREEN, "PING Success")
 
             print(
