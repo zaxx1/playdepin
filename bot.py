@@ -1,13 +1,8 @@
-from aiohttp import (
-    ClientResponseError,
-    ClientSession,
-    ClientTimeout
-)
-from aiohttp_socks import ProxyConnector
+from curl_cffi import requests
 from fake_useragent import FakeUserAgent
 from datetime import datetime
 from colorama import *
-import asyncio, json, os, pytz
+import asyncio, time, json, os, pytz
 
 wib = pytz.timezone('Asia/Jakarta')
 
@@ -16,11 +11,11 @@ class DePINed:
         self.headers = {
             "Accept": "*/*",
             "Accept-Language": "id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7",
-            "Origin": "chrome-extension://pjlappmodaidbdjhmhifbnnmmkkicjoc",
             "Sec-Fetch-Dest": "empty",
             "Sec-Fetch-Mode": "cors",
             "Sec-Fetch-Site": "none",
-            "User-Agent": FakeUserAgent().random
+            "User-Agent": FakeUserAgent().random,
+            "X-Requested-With": "XMLHttpRequest"
         }
         self.proxies = []
         self.proxy_index = 0
@@ -66,17 +61,16 @@ class DePINed:
         except json.JSONDecodeError:
             return []
     
-    async def load_proxies(self, use_proxy_choice: int):
+    def load_proxies(self, use_proxy_choice: int):
         filename = "proxy.txt"
         try:
             if use_proxy_choice == 1:
-                async with ClientSession(timeout=ClientTimeout(total=30)) as session:
-                    async with session.get("https://raw.githubusercontent.com/monosans/proxy-list/main/proxies/all.txt") as response:
-                        response.raise_for_status()
-                        content = await response.text()
-                        with open(filename, 'w') as f:
-                            f.write(content)
-                        self.proxies = content.splitlines()
+                response = requests.get("https://raw.githubusercontent.com/monosans/proxy-list/main/proxies/all.txt")
+                response.raise_for_status()
+                content = response.text
+                with open(filename, 'w') as f:
+                    f.write(content)
+                self.proxies = content.splitlines()
             else:
                 if not os.path.exists(filename):
                     self.log(f"{Fore.RED + Style.BRIGHT}File {filename} Not Found.{Style.RESET_ALL}")
@@ -160,7 +154,7 @@ class DePINed:
             except ValueError:
                 print(f"{Fore.RED + Style.BRIGHT}Invalid input. Enter a number (1, 2 or 3).{Style.RESET_ALL}")
 
-    async def user_login(self, email: str, password: str, proxy=None):
+    def user_login(self, email: str, password: str, proxy=None):
         url = "https://api.depined.org/api/user/login"
         data = json.dumps({"email":email, "password":password})
         headers = {
@@ -175,76 +169,70 @@ class DePINed:
             "Sec-Fetch-Site": "same-site",
             "User-Agent": FakeUserAgent().random
         }
-        connector = ProxyConnector.from_url(proxy) if proxy else None
         try:
-            async with ClientSession(connector=connector, timeout=ClientTimeout(total=60)) as session:
-                async with session.post(url=url, headers=headers, data=data) as response:
-                    response.raise_for_status()
-                    result = await response.json()
-                    return result['data']['token']
-        except (Exception, ClientResponseError) as e:
+            response = requests.post(url=url, headers=headers, data=data, proxy=proxy, timeout=60, impersonate="safari15_5")
+            response.raise_for_status()
+            result = response.json()
+            return result['data']['token']
+        except Exception as e:
             return self.print_message(email, proxy, Fore.RED, f"GET Access Token Failed: {Fore.YELLOW+Style.BRIGHT}{str(e)}")
-        
-    async def user_epoch_earning(self, email: str, password: str, token: str, use_proxy: bool, proxy=None, retries=5):
+
+    def user_epoch_earning(self, email: str, password: str, token: str, use_proxy: bool, proxy=None, retries=5):
         url = "https://api.depined.org/api/stats/epoch-earnings"
         headers = {
             **self.headers,
             "Authorization": f"Bearer {token}",
-            "Content-Type": "application/json",
-            "X-Requested-With": "XMLHttpRequest"
+            "Content-Type": "application/json"
         }
         for attempt in range(retries):
-            connector = ProxyConnector.from_url(proxy) if proxy else None
             try:
-                async with ClientSession(connector=connector, timeout=ClientTimeout(total=60)) as session:
-                    async with session.get(url=url, headers=headers) as response:
-                        if response.status == 401:
-                            token = await self.get_access_token(email, password, use_proxy)
-                            headers["Authorization"] = f"Bearer {token}"
-                            continue
+                response = requests.get(url=url, headers=headers, proxy=proxy, timeout=60, impersonate="safari15_5")
+                if response.status_code == 401:
+                    token = self.get_access_token(email, password, use_proxy)
+                    headers["Authorization"] = f"Bearer {token}"
+                    continue
 
-                        response.raise_for_status()
-                        result = await response.json()
-                        return result['data']
-            except (Exception, ClientResponseError) as e:
+                response.raise_for_status()
+                result = response.json()
+                return result['data']
+            except Exception as e:
                 if attempt < retries - 1:
-                    await asyncio.sleep(5)
+                    time.sleep(5)
                     continue
                 
                 return self.print_message(email, proxy, Fore.RED, f"GET Earning Data Failed: {Fore.YELLOW+Style.BRIGHT}{str(e)}")
             
-    async def user_send_ping(self, email: str, password: str, token: str, use_proxy: bool, proxy=None, retries=5):
+    def user_send_ping(self, email: str, password: str, token: str, use_proxy: bool, proxy=None, retries=5):
         url = "https://api.depined.org/api/user/widget-connect"
         data = json.dumps({"connected":True})
         headers = {
             "Authorization": f"Bearer {token}",
             "Content-Length": str(len(data)),
             "Content-Type": "application/json",
+            "Origin": "chrome-extension://pjlappmodaidbdjhmhifbnnmmkkicjoc",
         }
         for attempt in range(retries):
-            connector = ProxyConnector.from_url(proxy) if proxy else None
             try:
-                async with ClientSession(connector=connector, timeout=ClientTimeout(total=60)) as session:
-                    async with session.post(url=url, headers=headers, data=data) as response:
-                        if response.status == 401:
-                            token = await self.get_access_token(email, password, use_proxy)
-                            headers["Authorization"] = f"Bearer {token}"
-                            continue
+                response = requests.post(url=url, headers=headers, data=data, proxy=proxy, timeout=60, impersonate="safari15_5")
+                if response.status_code == 401:
+                    token = self.get_access_token(email, password, use_proxy)
+                    headers["Authorization"] = f"Bearer {token}"
+                    continue
 
-                        response.raise_for_status()
-                        return await response.json()
-            except (Exception, ClientResponseError) as e:
+                response.raise_for_status()
+                return response.json()
+            except Exception as e:
                 if attempt < retries - 1:
-                    await asyncio.sleep(5)
+                    time.sleep(5)
                     continue
                 
-                proxy = self.rotate_proxy_for_account(email) if use_proxy else None
+                self.rotate_proxy_for_account(email) if use_proxy else None
                 return self.print_message(email, proxy, Fore.RED, f"PING Failed: {Fore.YELLOW+Style.BRIGHT}{str(e)}")
             
     async def process_user_earning(self, email: str, password: str, token: str, use_proxy: bool):
         while True:
             proxy = self.get_next_proxy_for_account(email) if use_proxy else None
-            user = await self.user_epoch_earning(email, password, token, use_proxy, proxy)
+            user = self.user_epoch_earning(email, password, token, use_proxy, proxy)
             if user:
                 balance = user.get("earnings", 0)
                 epoch = user.get("epoch", "N/A")
@@ -268,7 +256,7 @@ class DePINed:
                 flush=True
             )
 
-            ping = await self.user_send_ping(email, password, token, use_proxy, proxy)
+            ping = self.user_send_ping(email, password, token, use_proxy, proxy)
             if ping and ping['message'] == "Widget connection status updated":
                 self.print_message(email, proxy, Fore.GREEN, "PING Success")
 
@@ -280,11 +268,11 @@ class DePINed:
             )
             await asyncio.sleep(1.5 * 60)
             
-    async def get_access_token(self, email: str, password: str, use_proxy: bool):
+    def get_access_token(self, email: str, password: str, use_proxy: bool):
         proxy = self.get_next_proxy_for_account(email) if use_proxy else None
         token = None
         while token is None:
-            token = await self.user_login(email, password, proxy)
+            token = self.user_login(email, password, proxy)
             if not token:
                 proxy = self.rotate_proxy_for_account(email) if use_proxy else None
                 continue
@@ -293,7 +281,7 @@ class DePINed:
             return token
         
     async def process_accounts(self, email: str, password: str, use_proxy: bool):
-        token = await self.get_access_token(email, password, use_proxy)
+        token = self.get_access_token(email, password, use_proxy)
         if token:
             tasks = []
             tasks.append(self.process_user_earning(email, password, token, use_proxy))
@@ -321,7 +309,7 @@ class DePINed:
             )
 
             if use_proxy:
-                await self.load_proxies(use_proxy_choice)
+                self.load_proxies(use_proxy_choice)
 
             self.log(f"{Fore.CYAN + Style.BRIGHT}-{Style.RESET_ALL}"*75)
 
